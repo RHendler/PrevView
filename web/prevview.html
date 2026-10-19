@@ -1,0 +1,737 @@
+<title>PrevView</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: full-bleed viewfinder on top, a field-notebook sheet below (side panel on wide screens). Single dark look, chosen on purpose. */
+:root {
+  --ink: #0e1310;
+  --sheet: #161d18;
+  --line: #2a352c;
+  --fg: #eceee2;
+  --muted: #9ca695;
+  --ochre: #d8a446;
+  --moss: #8bb071;
+  --rust: #c9694a;
+  --sky: #7fb2c9;
+  --display: "Instrument Serif", "Iowan Old Style", Georgia, serif;
+  --body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { background: var(--ink); color: var(--fg); font-family: var(--body); font-size: 15px; overflow: hidden; }
+.app { height: 100%; display: flex; flex-direction: column; }
+.stage { position: relative; flex: 1 1 auto; min-height: 0; background: #000; touch-action: none; }
+#view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.hud { position: absolute; left: 0; right: 0; top: 0; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+  padding: 12px max(16px, env(safe-area-inset-right, 0px)) 0 max(16px, env(safe-area-inset-left, 0px)); pointer-events: none; }
+.yearbox { text-shadow: 0 1px 12px rgba(0,0,0,.7); }
+.year { font-family: var(--display); font-size: clamp(44px, 12vw, 76px); line-height: .9; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.ago { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--ochre); margin-top: 4px; }
+.pills { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.pill { font-family: var(--mono); font-size: 11px; padding: 5px 9px; border-radius: 999px; background: rgba(14,19,16,.72); border: 1px solid var(--line); color: var(--fg); backdrop-filter: blur(6px); max-width: 56vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pill.ai { border-color: var(--ochre); color: var(--ochre); }
+.pill.warn { border-color: var(--rust); color: #f0c2b2; white-space: normal; }
+.hint { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); font-family: var(--mono); font-size: 10.5px; color: var(--muted); background: rgba(14,19,16,.65); padding: 4px 8px; border-radius: 6px; pointer-events: none; white-space: nowrap; }
+.tip { position: absolute; max-width: 240px; background: rgba(14,19,16,.92); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 13px; line-height: 1.4; pointer-events: none; }
+.tip b { font-weight: 600; display: block; }
+.tip i { color: var(--muted); font-size: 12px; }
+
+.sheet { flex: 0 0 auto; max-height: 50%; overflow-y: auto; background: var(--sheet); border-top: 1px solid var(--line);
+  padding-block: 12px 18px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 14px; }
+@media (min-width: 900px) {
+  .app { flex-direction: row; }
+  .sheet { max-height: none; width: 400px; border-top: 0; border-left: 1px solid var(--line); }
+}
+
+.ruler { display: grid; grid-template-columns: repeat(6, 1fr); position: relative; padding-top: 6px; }
+.ruler::before { content: ""; position: absolute; left: 8%; right: 8%; top: 15px; height: 1px; background: var(--line); }
+.era { position: relative; background: none; border: 0; color: var(--muted); font: 500 13px/1 var(--mono); padding: 0 0 6px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; }
+.era::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--sheet); border: 1.5px solid var(--muted); position: relative; z-index: 1; }
+.era[aria-pressed="true"] { color: var(--fg); }
+.era[aria-pressed="true"]::before { background: var(--ochre); border-color: var(--ochre); box-shadow: 0 0 0 4px rgba(216,164,70,.18); }
+.era:focus-visible { outline: 2px solid var(--ochre); outline-offset: 2px; border-radius: 6px; }
+
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.blend { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; font: 11px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+input[type=range] { width: 100%; accent-color: var(--ochre); }
+button.act, label.act { font: 600 14px var(--body); color: var(--fg); background: #212a23; border: 1px solid var(--line); padding: 10px 13px; border-radius: 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+button.act.primary { background: var(--ochre); color: #1a1408; border-color: var(--ochre); }
+button.act:disabled { opacity: .5; cursor: default; }
+button.act:focus-visible, label.act:focus-within, select:focus-visible, input:focus-visible { outline: 2px solid var(--ochre); outline-offset: 2px; }
+label.act input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+select, input[type=text] { font: 14px var(--body); color: var(--fg); background: #212a23; border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; min-width: 0; flex: 1 1 200px; }
+.toggle { font: 12px var(--mono); color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+
+h2 { font-family: var(--display); font-weight: 400; font-size: 24px; margin: 0; text-wrap: balance; }
+.label { font: 500 10.5px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+.story { margin: 0; line-height: 1.5; color: #d9dccf; max-width: 62ch; }
+.bar { display: flex; height: 12px; border-radius: 3px; overflow: hidden; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; font: 11.5px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.legend span::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; background: var(--c); }
+.species { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.species li { background: var(--sheet); padding: 9px 11px; display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; }
+.species .nm { font-weight: 600; min-width: 0; }
+.species .lt { font-style: italic; color: var(--muted); font-weight: 400; font-size: 13px; }
+.species .nt { grid-column: 1 / -1; font-size: 13px; color: var(--muted); line-height: 1.4; }
+.st { font: 500 10.5px var(--mono); padding: 3px 7px; border-radius: 999px; align-self: start; border: 1px solid currentColor; white-space: nowrap; }
+.st-C, .st-A { color: var(--moss); } .st-P { color: #c9d3bd; } .st-R { color: var(--ochre); }
+.st-G, .st-X { color: var(--rust); } .st-B { color: var(--sky); }
+.fine { font-size: 12.5px; color: var(--muted); line-height: 1.5; margin: 0; }
+.fine ul { margin: 4px 0 0; padding-left: 18px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="app">
+  <div class="stage" id="stage">
+    <canvas id="view" aria-label="Camera view with the reconstructed past landscape painted over it"></canvas>
+    <div class="hud">
+      <div class="yearbox"><div class="year" id="yearTxt">1826</div><div class="ago" id="agoTxt">200 years ago</div></div>
+      <div class="pills"><div class="pill" id="placePill">Central German lowland</div><div class="pill" id="srcPill">Sample view</div></div>
+    </div>
+    <div class="hint" id="hint">Drag the dashed line onto the horizon · tap an animal</div>
+    <div class="tip" id="tip" hidden></div>
+  </div>
+
+  <div class="sheet">
+    <div class="ruler" role="group" aria-label="Choose a year" id="ruler"></div>
+    <div class="blend"><span>Now</span><input type="range" id="blend" min="0" max="100" value="88" aria-label="Blend between today and the past"><span>Then</span></div>
+    <div class="row">
+      <label class="act primary" style="background:var(--ochre);color:#1a1408;border-color:var(--ochre)">Take photo<input type="file" id="photo" accept="image/*" capture="environment"></label>
+      <button class="act" id="liveBtn" type="button">Live camera</button>
+      <button class="act" id="askBtn" type="button" hidden>Ask Claude about this place</button>
+    </div>
+    <div class="row">
+      <select id="place" aria-label="Place"></select>
+      <input type="text" id="placeText" placeholder="Town, river or landscape, e.g. Lutherstadt Wittenberg" hidden>
+      <label class="toggle"><input type="checkbox" id="labels" checked> Name tags</label>
+    </div>
+    <div class="pill warn" id="warn" hidden></div>
+
+    <section>
+      <p class="label" id="storyLabel">What you would see</p>
+      <h2 id="storyTitle">Before the railways</h2>
+      <p class="story" id="story"></p>
+    </section>
+    <section>
+      <p class="label">Landscape mix in view <span id="lcNote">(indicative)</span></p>
+      <div class="bar" id="lcBar"></div>
+      <div class="legend" id="lcLegend"></div>
+    </section>
+    <section>
+      <p class="label">Wildlife status this year</p>
+      <ul class="species" id="species"></ul>
+    </section>
+    <section>
+      <p class="label">How this is built</p>
+      <div class="fine" id="sources"></div>
+    </section>
+  </div>
+</div>
+
+<script>
+(() => {
+const ERAS = [1526, 1626, 1726, 1826, 1926, 2026];
+const NOW = 2026;
+const LC_KEYS = ["arable","grass","forest","wetland","water","heath","village","mine"];
+const LC_INFO = {
+  arable: ["Fields", "#c4a45a"], grass: ["Meadow & pasture", "#7fa35a"], forest: ["Forest", "#3d5f2f"],
+  wetland: ["Marsh & reed", "#8a8a52"], water: ["Open water", "#5b86a0"], heath: ["Heath", "#8a6178"],
+  village: ["Villages", "#b0634a"], mine: ["Mines & works", "#6d6a66"]
+};
+
+const ERA_TEXT = {
+  1526: ["Reformation years", "Villages farm in open strips around a church, with wood pasture and coppice beyond. The Elbe and Saale meander freely through floodplain forest and every spring flood reshapes the valley. Wolves, lynx and bears still live in the Harz. The aurochs has been gone from Germany for centuries."],
+  1626: ["Thirty Years' War", "The war of 1618 to 1648 burns and empties villages. Fields go fallow, scrub and young forest creep back, and wolves increase with the disorder. Rivers and marshes are untouched by engineering."],
+  1726: ["Baroque Anhalt", "Wood is scarce: Hans Carl von Carlowitz coined the idea of sustainable forestry in Saxony in 1713. Commons and heaths are grazed hard. The floodplains are still wild. The last brown bear of the Harz was shot in 1705."],
+  1826: ["Before the railways", "This is the Prussian Province of Saxony, about to be mapped on the first Urmesstischblätter. There are no railways yet (Germany's first line opens in 1835). Forest cover is near its historic low and pine plantations are starting. The last Harz lynx was shot in 1818. The Elbe is not yet regulated."],
+  1926: ["Industrial heartland", "Lignite pits and chemical works around Bitterfeld-Wolfen and Leuna fill the air with smoke. The Bauhaus opens in Dessau. Rivers are straightened and polluted, the salmon is almost gone and wolves are extinct here. Farmland reaches its peak, full of hamsters and partridges."],
+  2026: ["Today", "This is your view as it is now. Pick a year on the ruler to paint the landscape as it was."]
+};
+
+const BASE = {
+  1526: { lc: {arable:38, grass:18, forest:22, wetland:12, water:6, heath:3, village:1, mine:0}, haze:0, tree:.9, conifer:.1 },
+  1626: { lc: {arable:26, grass:22, forest:28, wetland:13, water:6, heath:4, village:1, mine:0}, haze:.06, tree:1, conifer:.1 },
+  1726: { lc: {arable:42, grass:18, forest:18, wetland:11, water:5, heath:5, village:1, mine:0}, haze:.03, tree:.8, conifer:.15 },
+  1826: { lc: {arable:48, grass:17, forest:15, wetland:8, water:4, heath:6, village:2, mine:0}, haze:.05, tree:.7, conifer:.3 },
+  1926: { lc: {arable:60, grass:13, forest:14, wetland:3, water:3, heath:2, village:5, mine:0}, haze:.4, tree:.75, conifer:.45 }
+};
+
+// Status per era, in ERAS order. C common, A abundant, P present, R rare, G gone from here, X extinct, B returning
+const SPECIES = [
+  ["wolf","Grey wolf","Canis lupus","PCPRGB","Hunted with bounties and gone from the region by the mid-1800s. Wolves returned to Saxony-Anhalt in the 2000s."],
+  ["lynx","Eurasian lynx","Lynx lynx","PPRGGB","The last Harz lynx was shot in 1818. Lynx were reintroduced to the Harz from 2000."],
+  ["bear","Brown bear","Ursus arctos","PRGGGG","The last brown bear of the Harz was shot in 1705."],
+  ["reddeer","Red deer","Cervus elaphus","CCCPPP","Reserved for noble hunts for centuries; still widespread."],
+  ["roe","Roe deer","Capreolus capreolus","PPPCCC","Did well as forests were broken up into fields and edges."],
+  ["boar","Wild boar","Sus scrofa","CCCPPC","Hunted hard in the 1800s; now abundant thanks to maize fields."],
+  ["beaver","Elbe beaver","Castor fiber albicus","CCCPRB","The Middle Elbe was one of the last refuges of the beaver in Western Europe. Thousands live here again today."],
+  ["otter","Eurasian otter","Lutra lutra","CCCPRB","Pollution and hunting pushed it back. It is returning as rivers get cleaner."],
+  ["wildcat","European wildcat","Felis silvestris","PPPRRB","Survived in the Harz and Hakel woods."],
+  ["hamster","Field hamster","Cricetus cricetus","PPCAAR","Plague-level numbers on the Börde in the 1920s; critically endangered today."],
+  ["partridge","Grey partridge","Perdix perdix","PPCAAR","A bird of small fields and hedges; it collapsed with intensive farming."],
+  ["bustard","Great bustard","Otis tarda","PPCCRR","Europe's heaviest flying bird, on open steppe-like fields. Only small protected flocks remain, e.g. in the Fiener Bruch."],
+  ["crane","Common crane","Grus grus","CCPRRB","Bred in undrained marshes; came back when wetlands were protected."],
+  ["stork","White stork","Ciconia ciconia","CCCCCP","Followed farming and wet meadows; fewer since meadows were drained."],
+  ["grouse","Black grouse","Lyrurus tetrix","PPCCRG","A bird of heath and bog, gone from the lowlands today."],
+  ["eagle","White-tailed eagle","Haliaeetus albicilla","PPPRRB","Persecuted and poisoned by DDT; now breeds on the Elbe again."],
+  ["salmon","Atlantic salmon","Salmo salar","CCCPGR","The Elbe salmon run collapsed with weirs and pollution. Restocking began in the 1990s."],
+  ["sturgeon","European sturgeon","Acipenser sturio","PPPRGG","Gone from the Elbe; reintroduction trials are under way."],
+  ["aurochs","Aurochs","Bos primigenius","GGXXXX","Gone from Germany since the Middle Ages. The last aurochs died in Jaktorów forest, Poland, in 1627."],
+  ["bison","European bison","Bison bonasus","GGGGGG","Wild bison vanished from Germany in the Middle Ages. The last wild ones died in Białowieża in 1921."]
+];
+const STATUS_TXT = { C:"Common", A:"Abundant", P:"Present", R:"Rare", G:"Gone from here", X:"Extinct", B:"Returning" };
+
+const PLACES = [
+  { id:"lowland", name:"Central German lowland", lat:null, lon:null, story:"" },
+  { id:"dessau", name:"Dessau · Middle Elbe floodplain", lat:51.84, lon:12.24, story:"The Middle Elbe still holds some of Central Europe's largest hardwood floodplain forests." },
+  { id:"bitterfeld", name:"Bitterfeld · Goitzsche", lat:51.62, lon:12.33, story:"Before the lignite pits, this was the Mulde floodplain with meadows, oak woods and villages." },
+  { id:"bernburg", name:"Bernburg · Strenzfeld campus", lat:51.81, lon:11.72, story:"Black-earth Börde soils on the Saale have been farmed since the Neolithic." },
+  { id:"harz", name:"Harz · Brocken area", lat:51.80, lon:10.62, story:"Old beech-spruce mountain forest, turned into spruce plantations for the mines from the 1700s." },
+  { id:"custom", name:"Another place…", lat:null, lon:null, story:"" }
+];
+
+function placeProfile(pid, era, p) {
+  const lc = p.lc;
+  if (pid === "dessau") { lc.wetland += 10; lc.water += 6; lc.forest += 14; lc.arable -= 20; }
+  if (pid === "bernburg") { lc.arable += 12; lc.forest -= 6; lc.wetland -= 3; }
+  if (pid === "bitterfeld") {
+    if (era === 1926) { lc.mine += 22; lc.arable -= 14; lc.village += 3; p.haze = .72; p.industry = true; }
+    else { lc.wetland += 6; lc.forest += 6; lc.arable -= 10; }
+  }
+  if (pid === "harz") { lc.forest += 40; lc.arable -= 28; lc.wetland -= 4; p.tree = 1;
+    p.conifer = {1526:.25, 1626:.25, 1726:.45, 1826:.65, 1926:.85}[era]; }
+  if (era === 1926 && pid !== "bitterfeld" && pid !== "harz") p.industry = pid === "lowland" || pid === "dessau";
+  return p;
+}
+
+// ---------- state ----------
+const S = { era: 1826, blend: .88, hz: .54, place: "lowland", labels: true, img: null, video: null, ai: null, coords: null,
+  dirty: true, animals: [], hits: [], features: [] };
+
+const $ = id => document.getElementById(id);
+const stage = $("stage"), cv = $("view"), ctx = cv.getContext("2d");
+const past = document.createElement("canvas"), pctx = past.getContext("2d");
+const base = document.createElement("canvas"), bctx = base.getContext("2d");
+let W = 0, H = 0, DPR = 1;
+
+function rng(seed) { let a = seed >>> 0; return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function shade(hex, amt) { const n = parseInt(hex.slice(1), 16); let r = n >> 16, g = n >> 8 & 255, b = n & 255;
+  const f = v => Math.max(0, Math.min(255, Math.round(amt < 0 ? v * (1 + amt) : v + (255 - v) * amt)));
+  return "rgb(" + f(r) + "," + f(g) + "," + f(b) + ")"; }
+function jitter(hex, r, k) { return shade(hex, (r() - .5) * k); }
+
+function profile(era) {
+  if (era === NOW) return null;
+  const b = BASE[era];
+  let p = { lc: { ...b.lc }, haze: b.haze, tree: b.tree, conifer: b.conifer, industry: false };
+  p = placeProfile(S.place, era, p);
+  const ai = S.ai && S.ai.eras && S.ai.eras[era];
+  if (ai) {
+    if (ai.landcover) for (const k of LC_KEYS) if (typeof ai.landcover[k] === "number") p.lc[k] = ai.landcover[k]; else if (ai.landcover && !(k in ai.landcover)) p.lc[k] = 0;
+    if (typeof ai.haze === "number") p.haze = clamp01(ai.haze);
+    if (typeof ai.tree_height === "number") p.tree = clamp01(ai.tree_height);
+    if (typeof ai.conifer === "number") p.conifer = clamp01(ai.conifer);
+    if (ai.industry != null) p.industry = !!ai.industry;
+  }
+  let sum = 0; for (const k of LC_KEYS) { p.lc[k] = Math.max(0, +p.lc[k] || 0); sum += p.lc[k]; }
+  for (const k of LC_KEYS) p.lc[k] = sum ? p.lc[k] * 100 / sum : 0;
+  return p;
+}
+const clamp01 = v => Math.max(0, Math.min(1, +v || 0));
+
+function speciesFor(era) {
+  const i = ERAS.indexOf(era);
+  const ai = S.ai && S.ai.eras && S.ai.eras[era];
+  if (ai && Array.isArray(ai.species) && ai.species.length) {
+    return ai.species.slice(0, 24).map(s => ({ key: SPRITES[s.sprite] ? s.sprite : "none", name: String(s.name || "Unknown"), latin: String(s.latin || ""),
+      st: STATUS_CODES[String(s.status || "").toLowerCase()] || "P", note: String(s.note || "") }));
+  }
+  return SPECIES.map(([key, name, latin, st, note]) => ({ key, name, latin, st: st[i], note }));
+}
+const STATUS_CODES = { common:"C", abundant:"A", present:"P", rare:"R", gone:"G", extinct:"X", back:"B", returning:"B" };
+
+// ---------- sizing ----------
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  const r = stage.getBoundingClientRect();
+  W = Math.max(1, Math.round(r.width * DPR)); H = Math.max(1, Math.round(r.height * DPR));
+  for (const c of [cv, past, base]) { c.width = W; c.height = H; }
+  drawBase(); S.dirty = true;
+}
+
+// ---------- base layer: photo, video or the sample modern scene ----------
+function cover(c, src, sw, sh) { const s = Math.max(W / sw, H / sh); const w = sw * s, h = sh * s; c.drawImage(src, (W - w) / 2, (H - h) / 2, w, h); }
+function drawBase() {
+  bctx.clearRect(0, 0, W, H);
+  if (S.img) { cover(bctx, S.img, S.img.naturalWidth || S.img.width, S.img.naturalHeight || S.img.height); return; }
+  drawSampleToday(bctx);
+}
+function drawSampleToday(c) {
+  const hy = H * S.hz, r = rng(7);
+  let g = c.createLinearGradient(0, 0, 0, hy); g.addColorStop(0, "#6f9fc4"); g.addColorStop(1, "#cfdde3");
+  c.fillStyle = g; c.fillRect(0, 0, W, hy + 2);
+  // distant wind turbines and pylons
+  c.strokeStyle = "#e9eef0"; c.lineWidth = Math.max(1, W * .0025);
+  for (let i = 0; i < 6; i++) { const x = W * (.08 + i * .16 + r() * .05), h = H * (.13 + r() * .05), y = hy - H * .005;
+    c.beginPath(); c.moveTo(x, y); c.lineTo(x, y - h); c.stroke();
+    for (let k = 0; k < 3; k++) { const a = i + k * 2.094; c.beginPath(); c.moveTo(x, y - h); c.lineTo(x + Math.cos(a) * h * .45, y - h + Math.sin(a) * h * .45); c.stroke(); } }
+  // industrial park and town
+  c.fillStyle = "#9aa1a6"; c.fillRect(W * .58, hy - H * .05, W * .2, H * .05);
+  c.fillStyle = "#b9bec1"; c.fillRect(W * .62, hy - H * .09, W * .05, H * .09);
+  c.fillStyle = "#7d8489"; c.fillRect(W * .7, hy - H * .14, W * .012, H * .14);
+  for (let i = 0; i < 9; i++) { c.fillStyle = jitter("#c9b8a6", r, .3); const w = W * (.02 + r() * .03), h = H * (.02 + r() * .05); c.fillRect(W * (.05 + i * .05), hy - h, w, h); }
+  // big monoculture fields, a motorway
+  const bands = ["#a7b552", "#d3c070", "#7b9a43", "#c9b467", "#94a848"];
+  let y = hy; for (let k = 0; k < 6; k++) { const y2 = hy + (H - hy) * Math.pow((k + 1) / 6, 1.6); c.fillStyle = bands[k % bands.length]; c.fillRect(0, y, W, y2 - y + 1);
+    c.strokeStyle = "rgba(0,0,0,.08)"; c.lineWidth = 1; for (let x = 0; x < W; x += 6 + k * 5) { c.beginPath(); c.moveTo(x, y); c.lineTo(x + (x - W / 2) * .1, y2); c.stroke(); } y = y2; }
+  c.fillStyle = "#5c5f60"; c.beginPath(); c.moveTo(W * .47, hy); c.lineTo(W * .53, hy); c.lineTo(W * .85, H); c.lineTo(W * .15, H); c.fill();
+  c.strokeStyle = "#e8e2c8"; c.setLineDash([H * .03, H * .03]); c.lineWidth = Math.max(1.5, W * .004); c.beginPath(); c.moveTo(W * .5, hy); c.lineTo(W * .5, H); c.stroke(); c.setLineDash([]);
+}
+
+// ---------- the painted past ----------
+const PAL = { leaf: ["#2f4a24", "#3d5f2f", "#4b6d36", "#36532a"], conifer: ["#23382a", "#2b4331", "#1f3324"], trunk: "#4a3a2a" };
+
+function decid(c, x, yb, h, r) {
+  c.fillStyle = PAL.trunk; c.fillRect(x - h * .04, yb - h * .45, h * .08, h * .45);
+  const n = 5 + (r() * 4 | 0);
+  for (let i = 0; i < n; i++) { const a = r() * Math.PI * 2, d = r() * h * .22;
+    c.fillStyle = jitter(PAL.leaf[i % 4], r, .25); c.beginPath(); c.arc(x + Math.cos(a) * d, yb - h * .62 + Math.sin(a) * d * .8, h * (.18 + r() * .12), 0, 7); c.fill(); }
+  c.fillStyle = "rgba(170,200,120,.18)"; c.beginPath(); c.arc(x - h * .08, yb - h * .75, h * .14, 0, 7); c.fill();
+}
+function conif(c, x, yb, h, r) {
+  c.fillStyle = PAL.trunk; c.fillRect(x - h * .025, yb - h * .2, h * .05, h * .2);
+  c.fillStyle = jitter(PAL.conifer[r() * 3 | 0], r, .2);
+  for (let i = 0; i < 4; i++) { const t = yb - h * .15 - i * h * .21, w = h * (.24 - i * .045);
+    c.beginPath(); c.moveTo(x - w, t); c.lineTo(x, t - h * .32); c.lineTo(x + w, t); c.fill(); }
+}
+function tree(c, x, yb, h, r, p) { (r() < p.conifer ? conif : decid)(c, x, yb, h, r); }
+
+function house(c, x, yb, s, r, era) {
+  const w = s * (1 + r() * .6), h = s * .6;
+  c.fillStyle = era >= 1926 && r() < .5 ? "#b9a48e" : "#d8cdb6"; c.fillRect(x, yb - h, w, h);
+  c.strokeStyle = "rgba(60,40,30,.6)"; c.lineWidth = Math.max(1, s * .04);
+  if (era < 1900) for (let i = 1; i < 3; i++) { c.beginPath(); c.moveTo(x + w * i / 3, yb - h); c.lineTo(x + w * i / 3, yb); c.stroke(); }
+  c.fillStyle = era < 1800 && r() < .5 ? "#9b8a5a" : "#a4503a";
+  c.beginPath(); c.moveTo(x - s * .1, yb - h); c.lineTo(x + w / 2, yb - h - s * .55); c.lineTo(x + w + s * .1, yb - h); c.fill();
+}
+function church(c, x, yb, s) {
+  c.fillStyle = "#cfc4ae"; c.fillRect(x, yb - s * 1.7, s * .5, s * 1.7); c.fillRect(x + s * .5, yb - s * .8, s * 1.2, s * .8);
+  c.fillStyle = "#4b5a5c"; c.beginPath(); c.moveTo(x - s * .05, yb - s * 1.7); c.lineTo(x + s * .25, yb - s * 2.5); c.lineTo(x + s * .55, yb - s * 1.7); c.fill();
+  c.fillStyle = "#a4503a"; c.beginPath(); c.moveTo(x + s * .5, yb - s * .8); c.lineTo(x + s * 1.1, yb - s * 1.2); c.lineTo(x + s * 1.7, yb - s * .8); c.fill();
+}
+function chimney(c, x, yb, s) {
+  c.fillStyle = "#6b4a3c"; c.fillRect(x, yb - s * 3, s * .28, s * 3);
+  c.fillStyle = "#7d7368"; c.fillRect(x - s * 1.4, yb - s * 1, s * 1.4, s);
+  for (let i = 0; i < 7; i++) { c.fillStyle = "rgba(90,85,80," + (.35 - i * .04) + ")"; c.beginPath(); c.arc(x + s * (.14 + i * .45), yb - s * (3.2 + i * .35), s * (.25 + i * .14), 0, 7); c.fill(); }
+}
+
+function patch(c, type, x, y, w, h, d, r, p, era, spots) {
+  const fill = (col) => { c.fillStyle = col; c.fillRect(x - 1, y - 1, w + 2, h + 2); };
+  const px = DPR * (1 + d * 2.5);
+  if (type === "arable") {
+    fill(jitter(era >= 1926 ? "#c3a85c" : "#b89f5d", r, .12));
+    const strip = (era < 1900 ? 7 : 18) * px;
+    for (let sx = x; sx < x + w; sx += strip) { if (r() < .5) { c.fillStyle = r() < .5 ? "rgba(110,120,60,.35)" : "rgba(120,80,40,.25)"; c.fillRect(sx, y, strip * .8, h); } }
+    spots.land.push({ x: x + w * r(), y: y + h * .8, d });
+  } else if (type === "grass" || type === "forest" || type === "village" || type === "heath") {
+    fill(jitter(type === "heath" ? "#7c6a5c" : type === "forest" ? "#4a6534" : "#7a9c52", r, .1));
+    const n = Math.min(400, w * h / (40 * px * px));
+    for (let i = 0; i < n; i++) { const gx = x + r() * w, gy = y + r() * h;
+      c.strokeStyle = type === "heath" ? (r() < .4 ? "rgba(150,90,140,.7)" : "rgba(90,100,60,.6)") : (r() < .5 ? "rgba(150,180,90,.6)" : "rgba(60,80,35,.55)");
+      c.lineWidth = Math.max(1, px * .5); c.beginPath(); c.moveTo(gx, gy); c.lineTo(gx + (r() - .5) * px, gy - px * (2 + r() * 3)); c.stroke(); }
+    if (type === "grass" && r() < .6) for (let i = 0; i < n / 8; i++) { c.fillStyle = ["#f1e9c8", "#e9c24a", "#c86a8a"][i % 3]; c.fillRect(x + r() * w, y + r() * h, px * .6, px * .6); }
+    if (type !== "forest") spots.land.push({ x: x + w * (.2 + .6 * r()), y: y + h * .8, d });
+  } else if (type === "wetland") {
+    fill(jitter("#7a7d4c", r, .1));
+    for (let i = 0; i < 3; i++) { c.fillStyle = "rgba(110,150,170,.55)"; c.beginPath(); c.ellipse(x + r() * w, y + h * (.3 + r() * .5), w * (.08 + r() * .12), h * .12, 0, 0, 7); c.fill(); }
+    const n = Math.min(300, w / px * 1.2);
+    for (let i = 0; i < n; i++) { const gx = x + r() * w, gy = y + h * (.4 + r() * .6);
+      c.strokeStyle = r() < .5 ? "#b2a26a" : "#6f7a3c"; c.lineWidth = Math.max(1, px * .5); c.beginPath(); c.moveTo(gx, gy); c.lineTo(gx + (r() - .5) * px * 2, gy - px * (5 + r() * 6)); c.stroke(); }
+    spots.water.push({ x: x + w * (.2 + .6 * r()), y: y + h * .7, d });
+  } else if (type === "water") {
+    const g = c.createLinearGradient(0, y, 0, y + h); g.addColorStop(0, "#9fbac6"); g.addColorStop(1, "#4f7286");
+    c.fillStyle = g; c.beginPath(); c.ellipse(x + w / 2, y + h / 2, w * .62, h * .62, 0, 0, 7); c.fill();
+    c.strokeStyle = "rgba(235,245,250,.55)"; c.lineWidth = Math.max(1, px * .4);
+    for (let i = 0; i < 10; i++) { const lx = x + r() * w, ly = y + h * (.2 + r() * .6); c.beginPath(); c.moveTo(lx, ly); c.lineTo(lx + px * (4 + r() * 8), ly); c.stroke(); }
+    spots.water.push({ x: x + w * (.3 + .4 * r()), y: y + h * .55, d, swim: true });
+  } else if (type === "mine") {
+    fill("#7a6f63");
+    for (let i = 0; i < 5; i++) { c.fillStyle = i % 2 ? "#5d554c" : "#8e8273"; c.fillRect(x, y + h * i / 5, w, h / 5 * .6); }
+  }
+}
+
+function paintPast() {
+  const p = profile(S.era); pctx.clearRect(0, 0, W, H); S.animals = [];
+  if (!p) return;
+  const r = rng(S.era * 31 + PLACES.findIndex(q => q.id === S.place) * 7 + 3), hy = H * S.hz, era = S.era;
+  // sky: real sky stays, plus a tint for the air of the time
+  let g = pctx.createLinearGradient(0, 0, 0, hy);
+  if (p.haze > .15) { g.addColorStop(0, "rgba(120,110,95," + p.haze * .45 + ")"); g.addColorStop(1, "rgba(150,135,110," + p.haze * .8 + ")"); }
+  else { g.addColorStop(0, "rgba(90,150,200,.10)"); g.addColorStop(1, "rgba(230,240,240,.18)"); }
+  if (!S.img && !S.video) { const sg = pctx.createLinearGradient(0, 0, 0, hy); sg.addColorStop(0, p.haze > .15 ? "#8d9aa0" : "#6f9fc4"); sg.addColorStop(1, p.haze > .15 ? "#cbbfa8" : "#d6e2e4"); pctx.fillStyle = sg; pctx.fillRect(0, 0, W, hy + 2); }
+  pctx.fillStyle = g; pctx.fillRect(0, 0, W, hy);
+  // far hills
+  pctx.fillStyle = p.haze > .15 ? "rgba(120,120,115,.85)" : "rgba(118,140,150,.85)";
+  pctx.beginPath(); pctx.moveTo(0, hy);
+  for (let x = 0; x <= W; x += W / 40) pctx.lineTo(x, hy - H * (.012 + .012 * Math.sin(x / W * 7 + era) + .01 * r()));
+  pctx.lineTo(W, hy); pctx.fill();
+  // treeline on the horizon: dense where forest share is high, hedges otherwise
+  const fShare = p.lc.forest / 100;
+  for (let x = -20; x < W + 20;) {
+    const dense = r() < Math.min(.95, fShare * 1.8 + .12);
+    const segW = W * (.06 + r() * .18);
+    for (let tx = x; tx < x + segW; tx += (dense ? 4 : 14 + r() * 30) * DPR) {
+      const h = H * (dense ? .05 + r() * .06 : .02 + r() * .03) * (.6 + p.tree * .6); tree(pctx, tx, hy + H * .004, h, r, p); }
+    x += segW;
+  }
+  // AI-detected modern structures above the horizon get hidden behind trees
+  for (const f of S.features) { if (f.since && f.since <= era) continue;
+    const fx = f.x * W, fy = f.y * H, fw = f.w * W, fh = f.h * H, yb = Math.max(hy, fy + fh);
+    for (let tx = fx; tx < fx + fw; tx += 5 * DPR) tree(pctx, tx + r() * 6, yb + H * .01, Math.max(H * .05, (yb - fy) * (1.05 + r() * .3)), r, p); }
+  // ground rows, far to near
+  const spots = { land: [], water: [] }, N = 8;
+  const weights = LC_KEYS.map(k => p.lc[k]);
+  const pick = () => { let v = r() * 100; for (let i = 0; i < LC_KEYS.length; i++) { v -= weights[i]; if (v <= 0) return LC_KEYS[i]; } return "grass"; };
+  for (let k = 0; k < N; k++) {
+    const y0 = hy + (H - hy) * Math.pow(k / N, 1.7), y1 = hy + (H - hy) * Math.pow((k + 1) / N, 1.7), d = (k + .5) / N;
+    const row = []; let x = 0;
+    while (x < W) { const t = pick(), w = W * (.12 + r() * .4) * (.5 + d); row.push([t, x, w]); x += w; }
+    for (const [t, px0, w] of row) patch(pctx, t, px0, y0, w, y1 - y0, d, r, p, era, spots);
+    for (const [t, px0, w] of row) {
+      const s = H * .02 * (.4 + d * 3);
+      if (t === "forest") for (let tx = px0; tx < px0 + w; tx += s * (.5 + r() * .5)) tree(pctx, tx, y1 - r() * (y1 - y0) * .3, s * (3 + r() * 1.5) * (.7 + p.tree * .5), r, p);
+      else if (t === "village") { const n = 2 + (r() * 4 | 0); for (let i = 0; i < n; i++) house(pctx, px0 + w * (i / n) * .9, y1 - (y1 - y0) * .2 * r(), s, r, era);
+        if (r() < .6) church(pctx, px0 + w * .5, y1 - (y1 - y0) * .1, s); if (p.industry && era >= 1900 && r() < .7) chimney(pctx, px0 + w * .8, y1, s); }
+      else if ((t === "grass" || t === "heath") && r() < (era < 1800 ? .45 : .25)) tree(pctx, px0 + w * r(), y1 - (y1 - y0) * .3 * r(), s * (2.5 + r() * 1.5), r, p);
+      else if (t === "mine" && p.industry) chimney(pctx, px0 + w * .7, y1, s * 1.2);
+    }
+  }
+  // gentle era grade over the painting
+  pctx.fillStyle = era >= 1900 ? "rgba(70,60,40,.12)" : "rgba(120,90,40,.08)"; pctx.fillRect(0, hy, W, H - hy);
+  placeAnimals(spots, r);
+}
+
+// ---------- wildlife ----------
+const SPRITES = {
+  reddeer: { k: "q", size: 1, col: "#7a4a2a", leg: .5, bh: .34, neck: .35, head: .13, antlers: 1, graze: 1, habitat: "land" },
+  roe: { k: "q", size: .62, col: "#9a5b30", leg: .5, bh: .32, neck: .3, head: .12, antlers: .4, graze: 1, habitat: "land" },
+  boar: { k: "q", size: .75, col: "#3b302a", leg: .25, bh: .42, neck: 0, head: .17, snout: 1, graze: 1, habitat: "land" },
+  wolf: { k: "q", size: .8, col: "#8b8378", leg: .42, bh: .3, neck: .12, head: .13, ears: 1, tail: .35, habitat: "land" },
+  lynx: { k: "q", size: .66, col: "#a58a62", leg: .42, bh: .32, neck: .08, head: .13, ears: 1, tufts: 1, tail: .08, habitat: "land" },
+  bear: { k: "q", size: 1.15, col: "#4a3324", leg: .32, bh: .5, neck: .05, head: .17, hump: 1, ears: 1, habitat: "land" },
+  wildcat: { k: "q", size: .42, col: "#8a7a62", leg: .32, bh: .3, neck: .05, head: .14, ears: 1, tail: .4, habitat: "land" },
+  hamster: { k: "q", size: .17, col: "#b07a42", leg: .1, bh: .55, neck: 0, head: .3, ears: 1, habitat: "land" },
+  beaver: { k: "q", size: .42, col: "#5a3d26", leg: .08, bh: .4, neck: 0, head: .2, flat: 1, habitat: "water" },
+  otter: { k: "q", size: .45, col: "#4b3a2c", leg: .1, bh: .22, neck: .05, head: .12, tail: .5, habitat: "water" },
+  stork: { k: "b", size: .55, col: "#f2f0ea", wing: "#1d1d1d", bill: "#d4442a", legc: "#d4442a", neck: .25, habitat: "water" },
+  crane: { k: "b", size: .6, col: "#9aa0a3", wing: "#6f7579", bill: "#3b3b3b", legc: "#2b2b2b", neck: .32, crown: 1, habitat: "water" },
+  bustard: { k: "b", size: .5, col: "#b8875a", wing: "#a47548", bill: "#c9c2b0", legc: "#8c7a5c", neck: .14, belly: 1, habitat: "land" },
+  grouse: { k: "b", size: .3, col: "#222", wing: "#333", bill: "#333", legc: "#333", neck: .06, comb: 1, habitat: "land" },
+  partridge: { k: "b", size: .2, col: "#8d7d6b", wing: "#9e7650", bill: "#555", legc: "#777", neck: .04, habitat: "land" },
+  eagle: { k: "f", size: 1, col: "#4a3a2c", habitat: "sky" }
+};
+const COUNT = { A: 4, C: 3, P: 2, R: 1, B: 2 };
+
+function placeAnimals(spots, r) {
+  const list = speciesFor(S.era).filter(s => SPRITES[s.key] && COUNT[s.st]);
+  for (const s of list) {
+    const sp = SPRITES[s.key];
+    for (let i = 0; i < COUNT[s.st]; i++) {
+      if (sp.habitat === "sky") { S.animals.push({ s, sp, sky: true, x: r() * W, y: H * S.hz * (.38 + r() * .35), ph: r() * 6, dir: r() < .5 ? -1 : 1 }); continue; }
+      const pool = sp.habitat === "water" && spots.water.length ? spots.water : spots.land;
+      if (!pool.length) continue;
+      const at = pool[(r() * pool.length) | 0];
+      S.animals.push({ s, sp, x: at.x + (r() - .5) * W * .05, y: at.y, d: at.d, ph: r() * 6, dir: r() < .5 ? -1 : 1, swim: at.swim && sp.habitat === "water" });
+    }
+  }
+  S.animals.sort((a, b) => (a.sky ? -1 : a.y) - (b.sky ? -1 : b.y));
+}
+
+function quad(c, sp, t, ph) {
+  const L = 1, lh = sp.leg, bh = sp.bh, col = sp.col, far = shade(col, -.3);
+  const grazing = sp.graze && Math.sin(t * .4 + ph) > .3;
+  const step = Math.sin(t * 2 + ph) * .03;
+  c.lineCap = "round";
+  const leg = (x, cl, off) => { c.strokeStyle = cl; c.lineWidth = sp.size < .3 ? .09 : .07; c.beginPath(); c.moveTo(x, -lh - .02); c.lineTo(x + off, 0); c.stroke(); };
+  if (lh > .12) { leg(-L * .3 + .05, far, -step); leg(L * .3 + .05, far, step); }
+  if (sp.tail) { c.strokeStyle = col; c.lineWidth = .08; c.beginPath(); c.moveTo(-L * .45, -lh - bh * .7); c.quadraticCurveTo(-L * .6, -lh - bh * .4, -L * .48 - sp.tail * .35, -lh - bh * .1 + Math.sin(t + ph) * .02); c.stroke(); }
+  if (sp.flat) { c.fillStyle = "#2f241a"; c.beginPath(); c.ellipse(-L * .55, -lh - bh * .15, .22, .06, -.2, 0, 7); c.fill(); }
+  c.fillStyle = col; c.beginPath(); c.ellipse(0, -lh - bh / 2, L / 2, bh / 2, 0, 0, 7); c.fill();
+  if (sp.hump) { c.beginPath(); c.ellipse(L * .18, -lh - bh * .85, L * .22, bh * .3, 0, 0, 7); c.fill(); }
+  c.fillStyle = shade(col, .25); c.beginPath(); c.ellipse(0, -lh - bh * .25, L * .35, bh * .18, 0, 0, 7); c.fill();
+  if (lh > .12) { leg(-L * .3, col, step); leg(L * .3, col, -step); }
+  const hx = L * .5 + .06, hy = grazing ? -lh * .25 : -lh - bh * .6 - sp.neck;
+  if (sp.neck > 0) { c.strokeStyle = col; c.lineWidth = bh * .5; c.beginPath(); c.moveTo(L * .32, -lh - bh * .6); c.lineTo(hx, hy); c.stroke(); }
+  c.fillStyle = col; c.beginPath(); c.ellipse(hx + sp.head * .4, hy, sp.head * 1.1, sp.head * .75, grazing ? .9 : .15, 0, 7); c.fill();
+  if (sp.snout) { c.fillStyle = shade(col, .15); c.beginPath(); c.ellipse(hx + sp.head * 1.4, hy + sp.head * .3, sp.head * .45, sp.head * .35, 0, 0, 7); c.fill(); }
+  if (sp.ears) { c.fillStyle = col; c.beginPath(); c.moveTo(hx, hy - sp.head * .5); c.lineTo(hx + sp.head * .15, hy - sp.head * 1.5); c.lineTo(hx + sp.head * .45, hy - sp.head * .5); c.fill();
+    if (sp.tufts) { c.strokeStyle = "#111"; c.lineWidth = .02; c.beginPath(); c.moveTo(hx + sp.head * .15, hy - sp.head * 1.5); c.lineTo(hx + sp.head * .15, hy - sp.head * 1.9); c.stroke(); } }
+  if (sp.antlers && !grazing) { c.strokeStyle = "#d8c7a4"; c.lineWidth = .03; const a = sp.antlers;
+    for (const sx of [-.04, .06]) { c.beginPath(); c.moveTo(hx + sx, hy - sp.head * .5); c.lineTo(hx + sx - .1 * a, hy - .35 * a); c.lineTo(hx + sx - .2 * a, hy - .45 * a);
+      c.moveTo(hx + sx - .05 * a, hy - .2 * a); c.lineTo(hx + sx + .06 * a, hy - .32 * a); c.moveTo(hx + sx - .1 * a, hy - .35 * a); c.lineTo(hx + sx - .02 * a, hy - .5 * a); c.stroke(); } }
+  c.fillStyle = "#111"; c.beginPath(); c.arc(hx + sp.head * .7, hy - sp.head * .15, .018, 0, 7); c.fill();
+}
+function bird(c, sp, t, ph) {
+  const legH = sp.neck > .2 ? .55 : sp.neck > .1 ? .3 : .12, peck = Math.sin(t * .7 + ph) > .6;
+  c.strokeStyle = sp.legc; c.lineWidth = .03; c.beginPath(); c.moveTo(-.04, -legH); c.lineTo(-.04, 0); c.moveTo(.05, -legH); c.lineTo(.05, 0); c.stroke();
+  c.fillStyle = sp.col; c.beginPath(); c.ellipse(0, -legH - .12, .26, .14, -.1, 0, 7); c.fill();
+  if (sp.belly) { c.fillStyle = "#efe9dc"; c.beginPath(); c.ellipse(.02, -legH - .07, .2, .07, 0, 0, 7); c.fill(); }
+  c.fillStyle = sp.wing; c.beginPath(); c.ellipse(-.08, -legH - .14, .2, .09, -.15, 0, 7); c.fill();
+  if (sp.comb) { c.strokeStyle = "#222"; c.lineWidth = .04; c.beginPath(); c.moveTo(-.22, -legH - .14); c.quadraticCurveTo(-.4, -legH - .3, -.32, -legH - .02); c.stroke(); }
+  const nx = .2 + (peck ? .1 : 0), ny = peck ? -legH * .5 : -legH - .2 - sp.neck;
+  c.strokeStyle = sp.col; c.lineWidth = .07; c.beginPath(); c.moveTo(.16, -legH - .16); c.lineTo(nx, ny); c.stroke();
+  c.fillStyle = sp.col; c.beginPath(); c.arc(nx, ny, .06, 0, 7); c.fill();
+  if (sp.crown) { c.fillStyle = "#c9332a"; c.beginPath(); c.arc(nx, ny - .03, .025, 0, 7); c.fill(); }
+  if (sp.comb) { c.fillStyle = "#d1322b"; c.beginPath(); c.arc(nx + .01, ny - .05, .02, 0, 7); c.fill(); }
+  c.strokeStyle = sp.bill; c.lineWidth = .025; c.beginPath(); c.moveTo(nx + .04, ny); c.lineTo(nx + (sp.neck > .2 ? .2 : .08), ny + (peck ? .08 : .02)); c.stroke();
+}
+function flyer(c, t, ph) {
+  const f = Math.sin(t * 3 + ph) * .35;
+  c.strokeStyle = "#3a2f25"; c.lineWidth = .08; c.lineCap = "round";
+  c.beginPath(); c.moveTo(-1, -f); c.quadraticCurveTo(-.5, -.35 - f * .5, 0, 0); c.quadraticCurveTo(.5, -.35 - f * .5, 1, -f); c.stroke();
+  c.fillStyle = "#efe9dc"; c.beginPath(); c.moveTo(-.15, .05); c.lineTo(0, .3); c.lineTo(.15, .05); c.fill();
+}
+
+function drawAnimals(c, t) {
+  S.hits = []; const tags = [];
+  const hy = H * S.hz, unit = (H - hy) * .16;
+  for (const a of S.animals) {
+    let x, y, s;
+    if (a.sky) { x = ((a.x + t * W * .015 * a.dir) % (W + 200) + W + 200) % (W + 200) - 100; y = a.y + Math.sin(t * .5 + a.ph) * H * .01; s = W * .025; }
+    else { s = unit * (.25 + a.d * 1.5) * a.sp.size; x = a.x + Math.sin(t * .05 + a.ph) * s * .4; y = a.y + (a.swim ? Math.sin(t * 1.5 + a.ph) * s * .02 : 0); }
+    c.save(); c.translate(x, y); c.scale(a.dir * s, s);
+    if (a.swim) { c.beginPath(); c.rect(-2, -3, 4, 3); c.clip(); c.translate(0, a.sp.leg + a.sp.bh * .4); }
+    if (a.sp.k === "q") quad(c, a.sp, t, a.ph); else if (a.sp.k === "b") bird(c, a.sp, t, a.ph); else flyer(c, t, a.ph);
+    c.restore();
+    if (a.swim) { c.strokeStyle = "rgba(230,240,245,.6)"; c.lineWidth = DPR; c.beginPath(); c.ellipse(x, y, s * .6, s * .05, 0, 0, 7); c.stroke(); }
+    const bw = s * 1.3, bh = s * (a.sky ? .8 : 1.2);
+    S.hits.push({ x: x - bw / 2, y: y - bh, w: bw, h: bh + 4, a });
+    if (S.labels && (a.sky || s > 14 * DPR)) {
+      c.font = (10 * DPR) + "px " + MONO;
+      const txt = a.s.name, tw = c.measureText(txt).width + 8 * DPR, ty = y - bh - 6 * DPR;
+      const box = { x: x - tw / 2, y: ty - 12 * DPR, w: tw, h: 15 * DPR };
+      if (box.y < 90 * DPR || tags.some(o => box.x < o.x + o.w && o.x < box.x + box.w && box.y < o.y + o.h && o.y < box.y + box.h)) continue;
+      tags.push(box);
+      c.fillStyle = "rgba(14,19,16,.72)"; c.fillRect(x - tw / 2, ty - 12 * DPR, tw, 15 * DPR);
+      c.fillStyle = "#eceee2"; c.textAlign = "center"; c.fillText(txt, x, ty);
+    }
+  }
+}
+
+// ---------- frame loop ----------
+function frame(ms) {
+  const t = ms / 1000;
+  if (S.dirty) { paintPast(); S.dirty = false; }
+  ctx.clearRect(0, 0, W, H);
+  if (S.video && S.video.readyState >= 2) cover(ctx, S.video, S.video.videoWidth, S.video.videoHeight); else ctx.drawImage(base, 0, 0);
+  if (S.era !== NOW) {
+    ctx.globalAlpha = S.blend; ctx.drawImage(past, 0, 0); drawAnimals(ctx, t); ctx.globalAlpha = 1;
+    if (S.blend < .98 && S.blend > .02) { /* blend shows both */ }
+  } else S.hits = [];
+  // horizon guide
+  const hy = H * S.hz; ctx.setLineDash([8 * DPR, 6 * DPR]); ctx.strokeStyle = "rgba(216,164,70,.75)"; ctx.lineWidth = 1.5 * DPR;
+  ctx.beginPath(); ctx.moveTo(0, hy); ctx.lineTo(W, hy); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = "#d8a446"; ctx.beginPath(); ctx.arc(W - 22 * DPR, hy, 7 * DPR, 0, 7); ctx.fill();
+  requestAnimationFrame(frame);
+}
+
+// ---------- panel ----------
+function renderPanel() {
+  const era = S.era, ago = NOW - era;
+  $("yearTxt").textContent = era === NOW ? "Today" : era;
+  $("agoTxt").textContent = era === NOW ? "your view now" : ago + " years ago";
+  for (const b of $("ruler").children) b.setAttribute("aria-pressed", String(+b.dataset.era === era));
+  const ai = S.ai && S.ai.eras && S.ai.eras[era];
+  const place = PLACES.find(q => q.id === S.place);
+  $("storyTitle").textContent = ERA_TEXT[era][0];
+  $("story").textContent = ai && ai.story ? ai.story : ERA_TEXT[era][1] + (place.story && era !== NOW && !(place.id === "bitterfeld" && era >= 1900) ? " " + place.story : "");
+  $("storyLabel").textContent = ai && ai.story ? "What you would see · read by Claude" : "What you would see";
+  const p = profile(era) || profile(1926);
+  $("lcNote").textContent = era === NOW ? "(shown for 1926 as reference)" : ai ? "(estimated by Claude for this view)" : "(indicative, regional)";
+  const bar = $("lcBar"), leg = $("lcLegend"); bar.textContent = ""; leg.textContent = "";
+  for (const k of LC_KEYS) { const v = p.lc[k]; if (v < .5) continue;
+    const seg = document.createElement("span"); seg.style.cssText = "flex:" + v + ";background:" + LC_INFO[k][1]; seg.title = LC_INFO[k][0]; bar.append(seg);
+    const l = document.createElement("span"); l.style.setProperty("--c", LC_INFO[k][1]); l.textContent = LC_INFO[k][0] + " " + Math.round(v) + "%"; leg.append(l); }
+  const ul = $("species"); ul.textContent = "";
+  for (const s of speciesFor(era)) {
+    const li = document.createElement("li");
+    const nm = document.createElement("div"); nm.className = "nm"; nm.textContent = s.name + " ";
+    const lt = document.createElement("span"); lt.className = "lt"; lt.textContent = s.latin; nm.append(lt);
+    const st = document.createElement("span"); st.className = "st st-" + s.st; st.textContent = STATUS_TXT[s.st] || s.st;
+    const nt = document.createElement("div"); nt.className = "nt"; nt.textContent = s.note;
+    li.append(nm, st); if (s.note) li.append(nt); ul.append(li);
+  }
+  const src = $("sources"); src.textContent = "";
+  const intro = document.createElement("p"); intro.className = "fine";
+  intro.textContent = S.ai ? "Claude read your photo and place and estimated each era. Confidence for " + era + ": " + ((ai && ai.confidence) || "n/a") + ". Treat it as a hypothesis to check against these sources:"
+    : "Beta. The landscape mix is an indicative reconstruction for Central Germany, not a measured map. Wildlife dates come from regional records. Grounded on:";
+  const list = document.createElement("ul");
+  const items = S.ai && Array.isArray(S.ai.sources) && S.ai.sources.length ? S.ai.sources.slice(0, 8) :
+    ["Potential natural vegetation map of Germany (BfN)", "HYDE 3.3 / LUH2 historical land-use reconstructions", "Prussian Urmesstischblätter (1830s–1850s) and Schmettau map (1767–87)", "Last records: Harz bear 1705, Harz lynx 1818; aurochs 1627 (Jaktorów)", "GBIF and Neotoma occurrence and pollen records"];
+  for (const s of items) { const li = document.createElement("li"); li.textContent = s; list.append(li); }
+  src.append(intro, list);
+  $("blend").disabled = era === NOW;
+  $("placePill").textContent = S.ai && S.ai.place_name ? S.ai.place_name : place.id === "custom" ? ($("placeText").value || "Another place") : place.name;
+}
+
+function setEra(e) { S.era = e; S.dirty = true; $("tip").hidden = true; renderPanel(); }
+
+// ---------- inputs ----------
+for (const e of ERAS) { const b = document.createElement("button"); b.className = "era"; b.type = "button"; b.dataset.era = e; b.textContent = e === NOW ? "Now" : e; b.onclick = () => setEra(e); $("ruler").append(b); }
+for (const p of PLACES) { const o = document.createElement("option"); o.value = p.id; o.textContent = p.name; $("place").append(o); }
+$("place").onchange = () => { S.place = $("place").value; S.ai = null; S.features = []; $("placeText").hidden = S.place !== "custom"; S.dirty = true; updateSrc(); renderPanel(); };
+$("placeText").oninput = () => { S.ai = null; S.features = []; renderPanel(); };
+$("blend").oninput = () => { S.blend = $("blend").value / 100; };
+$("labels").onchange = () => { S.labels = $("labels").checked; };
+document.addEventListener("keydown", e => { if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  const i = ERAS.indexOf(S.era); if (e.key === "ArrowLeft" && i > 0) setEra(ERAS[i - 1]); if (e.key === "ArrowRight" && i < ERAS.length - 1) setEra(ERAS[i + 1]); });
+
+function warn(msg) { const w = $("warn"); w.textContent = msg || ""; w.hidden = !msg; }
+function updateSrc(msg) { $("srcPill").textContent = msg || (S.video ? "Live camera" : S.img ? "Your photo" : "Sample view"); $("srcPill").classList.toggle("ai", !!S.ai); }
+
+let photoFile = null;
+$("photo").onchange = () => {
+  const f = $("photo").files && $("photo").files[0]; if (!f) return;
+  photoFile = f; stopVideo();
+  const img = new Image(); img.onload = () => { S.img = img; S.ai = null; S.features = []; drawBase(); S.dirty = true; updateSrc(); renderPanel(); readExifGps(f); };
+  img.src = URL.createObjectURL(f);
+};
+
+function stopVideo() { if (S.video) { const st = S.video.srcObject; st && st.getTracks().forEach(t => t.stop()); S.video = null; $("liveBtn").textContent = "Live camera"; } }
+$("liveBtn").onclick = async () => {
+  if (S.video) { stopVideo(); updateSrc(); return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+    const v = document.createElement("video"); v.playsInline = true; v.muted = true; v.srcObject = stream; await v.play();
+    S.video = v; $("liveBtn").textContent = "Stop camera"; warn(""); updateSrc();
+  } catch (e) {
+    warn("Live camera is blocked in this viewer. Use Take photo here, or open the GitHub Pages copy of PrevView for live view.");
+  }
+};
+
+// location: device GPS when allowed, else EXIF GPS from the photo, else the chosen place
+function nearest(lat, lon) {
+  let best = null, bd = 1e9;
+  for (const p of PLACES) if (p.lat != null) { const d = Math.hypot(p.lat - lat, (p.lon - lon) * Math.cos(lat * Math.PI / 180)) * 111; if (d < bd) { bd = d; best = p; } }
+  return bd < 25 ? best : null;
+}
+function useCoords(lat, lon, how) {
+  S.coords = { lat, lon };
+  const n = nearest(lat, lon);
+  if (n && S.place !== n.id) { S.place = n.id; $("place").value = n.id; $("placeText").hidden = true; S.dirty = true; }
+  else if (!n) { S.place = "custom"; $("place").value = "custom"; $("placeText").hidden = false; $("placeText").value = lat.toFixed(4) + ", " + lon.toFixed(4); S.dirty = true; }
+  updateSrc((S.img ? "Your photo" : "Location") + " · " + how); renderPanel();
+}
+try { navigator.geolocation && navigator.geolocation.getCurrentPosition(p => useCoords(p.coords.latitude, p.coords.longitude, "GPS"), () => {}, { timeout: 8000 }); } catch (e) {}
+
+async function readExifGps(file) {
+  try {
+    const buf = new DataView(await file.slice(0, 256 * 1024).arrayBuffer());
+    if (buf.getUint16(0) !== 0xFFD8) return;
+    let o = 2;
+    while (o < buf.byteLength - 4) {
+      const m = buf.getUint16(o), len = buf.getUint16(o + 2);
+      if (m === 0xFFE1 && buf.getUint32(o + 4) === 0x45786966) {
+        const t = o + 10, le = buf.getUint16(t) === 0x4949;
+        const u16 = p => buf.getUint16(p, le), u32 = p => buf.getUint32(p, le);
+        const ifd0 = t + u32(t + 4); let gps = 0;
+        for (let i = 0; i < u16(ifd0); i++) { const e = ifd0 + 2 + i * 12; if (u16(e) === 0x8825) gps = t + u32(e + 8); }
+        if (!gps) return;
+        const tags = {};
+        for (let i = 0; i < u16(gps); i++) { const e = gps + 2 + i * 12, tag = u16(e);
+          if (tag === 1 || tag === 3) tags[tag] = String.fromCharCode(buf.getUint8(e + 8));
+          if (tag === 2 || tag === 4) { const v = t + u32(e + 8), r = k => u32(v + k * 8) / u32(v + k * 8 + 4); tags[tag] = r(0) + r(1) / 60 + r(2) / 3600; } }
+        if (tags[2] == null || tags[4] == null) return;
+        useCoords(tags[2] * (tags[1] === "S" ? -1 : 1), tags[4] * (tags[3] === "W" ? -1 : 1), "photo GPS");
+        return;
+      }
+      o += 2 + len;
+    }
+  } catch (e) {}
+}
+
+// ---------- horizon drag + tap on animals ----------
+let dragging = false;
+stage.addEventListener("pointerdown", e => {
+  const r = stage.getBoundingClientRect(), y = e.clientY - r.top, x = e.clientX - r.left;
+  if (Math.abs(y - r.height * S.hz) < 26) { dragging = true; stage.setPointerCapture(e.pointerId); $("hint").hidden = true; return; }
+  const hit = S.hits.slice().reverse().find(h => x * DPR >= h.x && x * DPR <= h.x + h.w && y * DPR >= h.y && y * DPR <= h.y + h.h);
+  const tip = $("tip");
+  if (hit) { tip.textContent = ""; const b = document.createElement("b"); b.textContent = hit.a.s.name; const i = document.createElement("i"); i.textContent = (STATUS_TXT[hit.a.s.st] || "") + " in " + S.era;
+    const n = document.createElement("div"); n.textContent = hit.a.s.note; tip.append(b, i, n); tip.hidden = false;
+    tip.style.left = Math.min(r.width - 250, Math.max(8, x - 120)) + "px"; tip.style.top = Math.max(8, y - 120) + "px"; }
+  else tip.hidden = true;
+});
+stage.addEventListener("pointermove", e => { if (!dragging) return; const r = stage.getBoundingClientRect(); S.hz = Math.min(.85, Math.max(.2, (e.clientY - r.top) / r.height)); if (!S.img && !S.video) drawBase(); S.dirty = true; });
+stage.addEventListener("pointerup", () => { dragging = false; });
+
+// ---------- Claude ----------
+const MONO = getComputedStyle(document.documentElement).getPropertyValue("--mono") || "monospace";
+const SPRITE_KEYS = Object.keys(SPRITES).join("|");
+function buildPrompt(hasImage) {
+  const place = PLACES.find(q => q.id === S.place);
+  const where = S.place === "custom" ? ($("placeText").value || "unknown place") : place.name;
+  return `You are a historical ecologist helping an augmented-reality app called PrevView. It paints how a viewpoint looked in 1526, 1626, 1726, 1826 and 1926, before and during industrialisation.
+Place: ${where}${S.coords ? ` (lat ${S.coords.lat.toFixed(4)}, lon ${S.coords.lon.toFixed(4)})` : ""}.
+${hasImage ? "The attached image is the user's camera photo looking out from this place today. Use it to find the horizon and the modern structures that stick up above the land (buildings, towers, wind turbines, pylons, chimneys)." : "There is no photo; infer the typical view."}
+Base your estimates on regional historical ecology: potential natural vegetation, historical land use (e.g. HYDE, historical survey maps), river regulation history, mining and industrial history, and documented extinction and recolonisation dates for wildlife. Be specific to this region and honest about uncertainty.
+
+Reply with JSON only, no prose, in exactly this shape:
+{
+ "place_name": "short name of the place",
+ "horizon": number 0-1 (fraction of image height where land meets sky) or null,
+ "modern_features": [ {"label": "...", "x": 0-1, "y": 0-1, "w": 0-1, "h": 0-1, "since": year built (integer)} ],
+ "sources": ["dataset or literature a researcher should check, max 6"],
+ "eras": {
+   "1526": {
+     "landcover": {"arable": %, "grass": %, "forest": %, "wetland": %, "water": %, "heath": %, "village": %, "mine": %},
+     "haze": 0-1 (air pollution / smoke), "tree_height": 0-1, "conifer": 0-1 (share of conifers), "industry": true|false,
+     "story": "max 60 words: what the viewer would see here in that year, concrete and local",
+     "confidence": "low|medium|high",
+     "species": [ {"name": "English name", "latin": "Latin name", "status": "common|abundant|present|rare|gone|extinct|returning", "sprite": "${SPRITE_KEYS}|none", "note": "max 20 words, local fact with a date when known"} ]
+   },
+   "1626": {...}, "1726": {...}, "1826": {...}, "1926": {...}
+ }
+}
+Landcover is the mix visible in the view and should sum to about 100. List 8 to 14 species per era, including large mammals, birds, fish and notable extinct or vanished species; use a sprite only when the animal would plausibly be seen in the view. Use x,y,w,h as fractions of the image for each modern feature's bounding box.`;
+}
+
+let sampleFn = null;
+(async () => {
+  try {
+    if (!window.claude || !window.claude.use) return;
+    sampleFn = await window.claude.use("sample");
+    if (sampleFn) $("askBtn").hidden = false;
+  } catch (e) {}
+})();
+
+$("askBtn").onclick = async () => {
+  if (!sampleFn) return;
+  const btn = $("askBtn"); btn.disabled = true; btn.textContent = "Claude is reading this place…"; warn("");
+  updateSrc("Claude is reading…"); $("srcPill").classList.add("ai");
+  try {
+    let images;
+    if (photoFile) { const lim = await sampleFn.limits().catch(() => null); if (lim && lim.images) images = [photoFile]; }
+    const data = await sampleFn.json(buildPrompt(!!images), images ? { images } : {});
+    if (!data || typeof data !== "object" || !data.eras) throw { code: "bad_shape" };
+    S.ai = data;
+    S.features = Array.isArray(data.modern_features) ? data.modern_features.filter(f => f && [f.x, f.y, f.w, f.h].every(v => typeof v === "number"))
+      .map(f => ({ x: clamp01(f.x), y: clamp01(f.y), w: clamp01(f.w), h: clamp01(f.h), since: +f.since || 0, label: String(f.label || "") })) : [];
+    if (images && typeof data.horizon === "number" && data.horizon > .15 && data.horizon < .9) S.hz = data.horizon;
+    S.dirty = true; updateSrc("Read by Claude"); renderPanel();
+  } catch (e) {
+    S.ai = null; updateSrc();
+    warn(e && e.code === "not_granted" ? "Claude wasn't allowed for this page. The built-in reconstruction is still shown."
+      : e && e.code === "rate_limited" ? "Too many requests just now. Try again in a minute."
+      : "Claude couldn't finish the reconstruction this time. The built-in reconstruction is still shown.");
+  } finally { btn.disabled = false; btn.textContent = "Ask Claude about this place"; }
+};
+
+window.addEventListener("resize", resize);
+new ResizeObserver(resize).observe(stage);
+resize(); renderPanel(); updateSrc(); requestAnimationFrame(frame);
+})();
+</script>
